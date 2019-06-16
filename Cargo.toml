@@ -1,0 +1,9 @@
+# CJ's Lexer Solution
+
+[package]
+name = "cjls"
+version = "0.1.0"
+authors = ["cjburkey"]
+edition = "2018"
+
+[dependencies]
