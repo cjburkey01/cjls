@@ -1,23 +1,23 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
-struct Token {
-    name: String,
-    state_map: Box<[HashMap<char, u32>]>,
+pub mod lex;
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum Action {
+    Match(u32),           // Contains next state
+    Accept(&'static str), // Contains matched token name
+    Err,
 }
 
-impl Token {
-    fn new(name: &str, state_map: Box<[HashMap<char, u32>]>) -> Self {
-        Self {
-            name: String::from(name),
-            state_map,
-        }
-    }
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum Matched {
+    Some(char),
+    Any,
 }
 
 #[derive(Debug, Clone)]
-struct Term {
-    error: Option<String>,
+pub struct Term {
+    error: Option<char>,
     token: String,
     text: String,
     start_char: u32,
@@ -35,9 +35,9 @@ impl Term {
         }
     }
 
-    fn new_error(message: &str, text: String, start_char: u32, end_char: u32) -> Self {
+    fn new_error(error: char, text: String, start_char: u32, end_char: u32) -> Self {
         Self {
-            error: Some(String::from(message)),
+            error: Some(error),
             token: String::from("ERROR"),
             text,
             start_char,
@@ -47,41 +47,106 @@ impl Term {
 }
 
 #[derive(Debug, Clone)]
-struct Lexer {
-    tokens: Vec<Token>,
+pub struct Lexer {
+    fsa: Box<[HashMap<Matched, Action>]>,
 }
 
 impl Lexer {
-    fn new() -> Self {
-        Self { tokens: vec![] }
+    pub fn new(fsa: Vec<HashMap<Matched, Action>>) -> Self {
+        Self {
+            fsa: fsa.into_boxed_slice(),
+        }
     }
 
-    fn add_token(&mut self, token: Token) {
-        self.tokens.push(token);
-    }
+    pub fn lex_input(&self, input: &String) -> Vec<Term> {
+        let mut output = vec![];
+        let mut input_raw: Vec<char> = input.chars().collect();
 
-    fn lex_input(&self, input: &String) -> Vec<Term> {
-        let output = vec![];
-        let input_raw: Vec<char> = input.chars().collect();
+        let mut current_state = 0u32;
+        let mut current_token: Vec<char> = vec![];
+        let mut start_char = 0u32;
+        let mut current_char = 0u32;
+        'lexer_loop: while input_raw.len() > 0 {
+            let current_state_branches = self
+                .fsa
+                .get(current_state as usize)
+                .expect(format!("invalid state: {}", current_state).as_str());
+
+            let next_char = input_raw.remove(0);
+            current_token.push(next_char);
+
+            let next_action = match current_state_branches.get(&Matched::Some(next_char)) {
+                Some(action) => action,
+                None => current_state_branches.get(&Matched::Any).expect(
+                    format!("invalid input '{}' for state {}", next_char, current_state).as_str(),
+                ),
+            };
+            match next_action {
+                Action::Match(next_state) => current_state = *next_state,
+                Action::Accept(token_name) => {
+                    Self::reset_token(
+                        Option::Some(*token_name),
+                        &mut output,
+                        &mut current_state,
+                        &mut current_token,
+                        &mut start_char,
+                        current_char,
+                        &mut input_raw,
+                    );
+                }
+                Action::Err => {
+                    Self::reset_token(
+                        Option::None,
+                        &mut output,
+                        &mut current_state,
+                        &mut current_token,
+                        &mut start_char,
+                        current_char,
+                        &mut input_raw,
+                    );
+                    println!("Invalid token '{}' in state 0", next_char);
+                    break 'lexer_loop;
+                }
+            }
+
+            current_char += 1;
+        }
 
         output
     }
-}
 
-fn main() {
-    let example_token: Vec<HashMap<char, u32>> = vec![
-        [('a', 1)].iter().cloned().collect(),
-        [('b', 2), ('c', 2)].iter().cloned().collect(),
-        [('d', 2), ('e', 3)].iter().cloned().collect(),
-        [('e', 3)].iter().cloned().collect(),
-    ];
-    let token = Token::new("EXAMPLE", example_token.into_boxed_slice());
-    let mut lexer = Lexer::new();
-    lexer.add_token(token);
+    fn reset_token(
+        token: Option<&str>,
+        output: &mut Vec<Term>,
+        current_state: &mut u32,
+        current_token: &mut Vec<char>,
+        start_char: &mut u32,
+        current_char: u32,
+        input_raw: &mut Vec<char>,
+    ) {
+        *current_state = 0;
+        input_raw.insert(0, current_token.pop().unwrap());
+        output.push(match token {
+            Some(token_name) => Term::new(
+                token_name,
+                current_token.iter().collect(),
+                *start_char,
+                current_char,
+            ),
+            None => Term::new_error(
+                input_raw[0],
+                current_token.iter().collect(),
+                *start_char,
+                current_char,
+            ),
+        });
+        current_token.clear();
+        *start_char = current_char;
+    }
 }
 
 // Example input:
-// a(b|c)d*e+
+//  TOKEN:   a(b|c)d*e+
 //
 // State 0
 //  a:      State 1
@@ -96,4 +161,46 @@ fn main() {
 //  ELSE:   ERROR
 // State 3
 //  e:      State 3
-//  ELSE:   ACCEPT
+//  ELSE:   ACCEPT "TOKEN"
+fn main() {
+    let example_fsa: Vec<&[(Matched, Action)]> = vec![
+        // State 0
+        &[
+            (Matched::Some('a'), Action::Match(1)),
+            (Matched::Any, Action::Err),
+        ],
+        // State 1
+        &[
+            (Matched::Some('b'), Action::Match(2)),
+            (Matched::Some('c'), Action::Match(2)),
+            (Matched::Any, Action::Err),
+        ],
+        // State 2
+        &[
+            (Matched::Some('d'), Action::Match(2)),
+            (Matched::Some('e'), Action::Match(3)),
+            (Matched::Any, Action::Err),
+        ],
+        // State 3
+        &[
+            (Matched::Some('e'), Action::Match(3)),
+            (Matched::Any, Action::Accept("EXAMPLE_INPUT")),
+        ],
+    ];
+
+    let lexer = Lexer::new(nice_fsa_to_raw_fsa(example_fsa));
+    let output = lexer.lex_input(&String::from("abdeeabeeacddddeeacfe"));
+    println!("{:#?}", output);
+}
+
+fn nice_fsa_to_raw_fsa(nice_fsa: Vec<&[(Matched, Action)]>) -> Vec<HashMap<Matched, Action>> {
+    let mut raw_fsa: Vec<HashMap<Matched, Action>> = vec![];
+    for state in nice_fsa {
+        let mut branch_state_map = HashMap::new();
+        for branch in state {
+            branch_state_map.insert(branch.0, branch.1);
+        }
+        raw_fsa.push(branch_state_map);
+    }
+    raw_fsa
+}
