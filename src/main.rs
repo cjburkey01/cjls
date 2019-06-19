@@ -124,7 +124,6 @@ impl Lexer {
         current_char: u32,
         input_raw: &mut Vec<char>,
     ) {
-        *current_state = 0;
         input_raw.insert(0, current_token.pop().unwrap());
         output.push(match token {
             Some(token_name) => Term::new(
@@ -140,7 +139,9 @@ impl Lexer {
                 current_char,
             ),
         });
+
         current_token.clear();
+        *current_state = 0;
         *start_char = current_char;
     }
 }

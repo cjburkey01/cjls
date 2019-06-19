@@ -7,3 +7,4 @@ authors = ["cjburkey"]
 edition = "2018"
 
 [dependencies]
+char-iter = "0.1.0"
