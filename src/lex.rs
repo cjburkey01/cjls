@@ -81,7 +81,25 @@ impl LexerRule {
                 vec![map]
             }
             //LexerRule::CountRange(rule, min, max) => {}
-            //LexerRule::CountRangeEndless(rule, min) => {}
+
+            // TODO: THIS OUTPUTS AN EXTRA - FIX THAT!
+            LexerRule::CountRangeEndless(rule, min) => {
+                let mut output =
+                    LexerRule::Count(rule.to_owned(), *min).generated_fsa(exit_state, Option::None);
+                output.append(&mut rule.as_ref().generated_fsa(
+                    exit_state + output.len() - rule.get_states_generated(),
+                    Option::None,
+                ));
+                let len = output.len();
+                output[len - 1].insert(
+                    Matched::Any,
+                    match accept {
+                        Some(a) => Action::Accept(a),
+                        None => Action::Match((exit_state + len - 1) as u32),
+                    },
+                );
+                output
+            }
             LexerRule::Count(rule, count) => {
                 if *count == 0 {
                     return vec![];
@@ -100,9 +118,7 @@ impl LexerRule {
                 output
             }
             LexerRule::Or(a, b) => {
-                let mut output = a.generated_fsa(exit_state + b.get_states_generated(), accept);
-                output.append(&mut b.generated_fsa(exit_state + output.len(), accept));
-                output
+                unimplemented!();
             }
             LexerRule::And(a, b) => {
                 let mut output = a.as_ref().generated_fsa(exit_state, None);

@@ -196,22 +196,24 @@ fn main() {
     //        println!("{:#?}", output);
     //    }
     {
-        //        let example_rule = LexerRule::And(
-        //            Box::new(LexerRule::Count(Box::new(LexerRule::Range('a', 'c')), 2)),
-        //            Box::new(LexerRule::And(
-        //                Box::new(LexerRule::String(String::from("b"))),
-        //                Box::new(LexerRule::And(
-        //                    Box::new(LexerRule::String(String::from("c"))),
-        //                    Box::new(LexerRule::Wildcard),
-        //                )),
-        //            )),
-        //        );
         let example_rule = LexerRule::And(
-            Box::new(LexerRule::Or(
-                Box::new(LexerRule::String(String::from("a"))),
+            Box::new(LexerRule::String(String::from("a"))),
+            Box::new(LexerRule::And(
+                //                Box::new(LexerRule::Or(
                 Box::new(LexerRule::String(String::from("b"))),
+                //                    Box::new(LexerRule::String(String::from("c"))),
+                //                )),
+                Box::new(LexerRule::And(
+                    Box::new(LexerRule::CountRangeEndless(
+                        Box::new(LexerRule::String(String::from("d"))),
+                        0,
+                    )),
+                    Box::new(LexerRule::CountRangeEndless(
+                        Box::new(LexerRule::String(String::from("e"))),
+                        1,
+                    )),
+                )),
             )),
-            Box::new(LexerRule::Count(Box::new(LexerRule::Range('a', 'c')), 2)),
         );
         println!("{:#?}", example_rule);
         lex::print_fsa(&lex::generate_fsa_for_token("A_B", &example_rule));
