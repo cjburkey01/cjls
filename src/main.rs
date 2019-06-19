@@ -1,3 +1,4 @@
+use lex::LexerRule;
 use std::collections::HashMap;
 
 pub mod lex;
@@ -189,9 +190,32 @@ fn main() {
         ],
     ];
 
-    let lexer = Lexer::new(nice_fsa_to_raw_fsa(example_fsa));
-    let output = lexer.lex_input(&String::from("abdeeabeeacddddeeacfe"));
-    println!("{:#?}", output);
+    //    {
+    //        let lexer = Lexer::new(nice_fsa_to_raw_fsa(example_fsa));
+    //        let output = lexer.lex_input(&String::from("abdeeabeeacddddeeacfe"));
+    //        println!("{:#?}", output);
+    //    }
+    {
+        //        let example_rule = LexerRule::And(
+        //            Box::new(LexerRule::Count(Box::new(LexerRule::Range('a', 'c')), 2)),
+        //            Box::new(LexerRule::And(
+        //                Box::new(LexerRule::String(String::from("b"))),
+        //                Box::new(LexerRule::And(
+        //                    Box::new(LexerRule::String(String::from("c"))),
+        //                    Box::new(LexerRule::Wildcard),
+        //                )),
+        //            )),
+        //        );
+        let example_rule = LexerRule::And(
+            Box::new(LexerRule::Or(
+                Box::new(LexerRule::String(String::from("a"))),
+                Box::new(LexerRule::String(String::from("b"))),
+            )),
+            Box::new(LexerRule::Count(Box::new(LexerRule::Range('a', 'c')), 2)),
+        );
+        println!("{:#?}", example_rule);
+        lex::print_fsa(&lex::generate_fsa_for_token("A_B", &example_rule));
+    }
 }
 
 fn nice_fsa_to_raw_fsa(nice_fsa: Vec<&[(Matched, Action)]>) -> Vec<HashMap<Matched, Action>> {
