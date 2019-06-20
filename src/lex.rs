@@ -25,26 +25,16 @@ impl LexerRule {
             LexerRule::Range(start, end) => char_iter::new(*start, *end).len(),
 
             // TODO: BE LESS LAZY
-            _ => self.generated_fsa(0, None).len(),
+            _ => self.generated_fsa(0).len(),
         }
     }
 
-    fn generated_fsa(
-        &self,
-        exit_state: usize,
-        accept: Option<&'static str>,
-    ) -> Vec<HashMap<Matched, Action>> {
+    fn generated_fsa(&self, exit_state: usize) -> Vec<HashMap<Matched, Action>> {
         match self {
-            LexerRule::Wildcard => vec![[(
-                Matched::Any,
-                match accept {
-                    Some(a) => Action::Accept(a),
-                    None => Action::Match(exit_state as u32),
-                },
-            )]
-            .iter()
-            .cloned()
-            .collect()],
+            LexerRule::Wildcard => vec![[(Matched::Any, Action::Match(false, exit_state as u32))]
+                .iter()
+                .cloned()
+                .collect()],
             LexerRule::String(in_str) => {
                 let mut output = Vec::with_capacity(in_str.len());
                 for (i, character) in in_str.chars().enumerate() {
@@ -52,10 +42,7 @@ impl LexerRule {
                         [
                             (
                                 Matched::Some(character),
-                                match accept {
-                                    Some(a) => Action::Accept(a),
-                                    None => Action::Match((exit_state + i) as u32),
-                                },
+                                Action::Match(false, (exit_state + i) as u32),
                             ),
                             (Matched::Any, Action::Err),
                         ]
@@ -72,31 +59,25 @@ impl LexerRule {
                 for character in char_iter::new(*start, *end) {
                     map.insert(
                         Matched::Some(character),
-                        match accept {
-                            Some(a) => Action::Accept(a),
-                            None => Action::Match(exit_state as u32),
-                        },
+                        Action::Match(false, exit_state as u32),
                     );
                 }
                 vec![map]
             }
-            //LexerRule::CountRange(rule, min, max) => {}
 
-            // TODO: THIS OUTPUTS AN EXTRA - FIX THAT!
+            // TODO:
+            //  LexerRule::CountRange(rule, min, max) => {}
             LexerRule::CountRangeEndless(rule, min) => {
-                let mut output =
-                    LexerRule::Count(rule.to_owned(), *min).generated_fsa(exit_state, Option::None);
-                output.append(&mut rule.as_ref().generated_fsa(
-                    exit_state + output.len() - rule.get_states_generated(),
-                    Option::None,
-                ));
+                let mut output = LexerRule::Count(rule.to_owned(), *min).generated_fsa(exit_state);
+                output.append(
+                    &mut rule
+                        .as_ref()
+                        .generated_fsa(exit_state + output.len() - rule.get_states_generated()),
+                );
                 let len = output.len();
                 output[len - 1].insert(
                     Matched::Any,
-                    match accept {
-                        Some(a) => Action::Accept(a),
-                        None => Action::Match((exit_state + len - 1) as u32),
-                    },
+                    Action::Match(true, (exit_state + len - 1) as u32),
                 );
                 output
             }
@@ -105,27 +86,20 @@ impl LexerRule {
                     return vec![];
                 }
                 let mut output = vec![];
-                for i in 0..*count {
-                    output.append(&mut rule.as_ref().generated_fsa(
-                        exit_state + output.len(),
-                        if i == (*count - 1) {
-                            accept
-                        } else {
-                            Option::None
-                        },
-                    ));
+                for _ in 0..*count {
+                    output.append(&mut rule.as_ref().generated_fsa(exit_state + output.len()));
                 }
                 output
             }
-            LexerRule::Or(a, b) => {
-                unimplemented!();
-            }
+
+            // TODO:
+            //  LexerRule::Or(a, b) => {}
             LexerRule::And(a, b) => {
-                let mut output = a.as_ref().generated_fsa(exit_state, None);
+                let mut output = a.as_ref().generated_fsa(exit_state);
                 output.append(
                     &mut b
                         .as_ref()
-                        .generated_fsa((output.len() + exit_state) as usize, accept),
+                        .generated_fsa((output.len() + exit_state) as usize),
                 );
                 output
             }
@@ -138,11 +112,14 @@ pub fn generate_fsa_for_token(
     name: &'static str,
     rule: &LexerRule,
 ) -> Vec<HashMap<Matched, Action>> {
-    rule.generated_fsa(1, Option::Some(name))
-}
-
-pub fn generate_fsa(tokens: Box<[(&str, &LexerRule)]>) -> Vec<HashMap<Matched, Action>> {
-    unimplemented!();
+    let mut fsa = rule.generated_fsa(1);
+    fsa.push(
+        [(Matched::Any, Action::Accept(name))]
+            .iter()
+            .cloned()
+            .collect(),
+    );
+    fsa
 }
 
 pub fn print_fsa(fsa: &Vec<HashMap<Matched, Action>>) {
@@ -153,8 +130,14 @@ pub fn print_fsa(fsa: &Vec<HashMap<Matched, Action>>) {
                 "  {:?} => {}",
                 branch.0,
                 match branch.1 {
-                    Action::Accept(token_name) => format!("Accept token \"{}\"", *token_name),
-                    Action::Match(next_state) => format!("Goto {}", *next_state),
+                    Action::Accept(token_name) => {
+                        format!("Accept token \"{}\" and pushback", *token_name)
+                    }
+                    Action::Match(pushback, next_state) => format!(
+                        "Goto {}{}",
+                        *next_state,
+                        if *pushback { " and pushback" } else { "" }
+                    ),
                     Action::Err => String::from("Error"),
                 }
             );

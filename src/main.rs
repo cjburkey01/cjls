@@ -5,7 +5,7 @@ pub mod lex;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Action {
-    Match(u32),           // Contains next state
+    Match(bool, u32),     // Contains whether to push back char and the next state
     Accept(&'static str), // Contains matched token name
     Err,
 }
@@ -59,6 +59,7 @@ impl Lexer {
         }
     }
 
+    // TODO: ADD SOME FORM OF END-OF-INPUT TOKEN TO CHECK IF THE TOKEN CAN BE ACCEPTED
     pub fn lex_input(&self, input: &String) -> Vec<Term> {
         let mut output = vec![];
         let mut input_raw: Vec<char> = input.chars().collect();
@@ -83,7 +84,23 @@ impl Lexer {
                 ),
             };
             match next_action {
-                Action::Match(next_state) => current_state = *next_state,
+                Action::Match(pushback, next_state) => {
+                    if *pushback {
+                        println!(
+                            "Pushback '{}' from state {} into state {}",
+                            next_char, current_state, next_state,
+                        );
+                    } else {
+                        println!(
+                            "Match '{}' in state {} and move to state {}",
+                            next_char, current_state, next_state,
+                        );
+                    }
+                    current_state = *next_state;
+                    if *pushback {
+                        pushback_char(&mut current_token, &mut input_raw);
+                    }
+                }
                 Action::Accept(token_name) => {
                     Self::reset_token(
                         Option::Some(*token_name),
@@ -96,6 +113,7 @@ impl Lexer {
                     );
                 }
                 Action::Err => {
+                    println!("Invalid token '{}' in state {}", next_char, current_state);
                     Self::reset_token(
                         Option::None,
                         &mut output,
@@ -105,7 +123,6 @@ impl Lexer {
                         current_char,
                         &mut input_raw,
                     );
-                    println!("Invalid token '{}' in state 0", next_char);
                     break 'lexer_loop;
                 }
             }
@@ -125,7 +142,7 @@ impl Lexer {
         current_char: u32,
         input_raw: &mut Vec<char>,
     ) {
-        input_raw.insert(0, current_token.pop().unwrap());
+        pushback_char(current_token, input_raw);
         output.push(match token {
             Some(token_name) => Term::new(
                 token_name,
@@ -147,79 +164,86 @@ impl Lexer {
     }
 }
 
-// Example input:
-//  TOKEN:   a(b|c)d*e+
-//
-// State 0
-//  a:      State 1
-//  ELSE:   ERROR
-// State 1
-//  b:      State 2
-//  c:      State 2
-//  ELSE:   ERROR
-// State 2
-//  d:      State 2
-//  e:      State 3
-//  ELSE:   ERROR
-// State 3
-//  e:      State 3
-//  ELSE:   ACCEPT "TOKEN"
+fn pushback_char(current_token: &mut Vec<char>, input_raw: &mut Vec<char>) {
+    input_raw.insert(0, current_token.pop().unwrap());
+}
+
 fn main() {
-    let example_fsa: Vec<&[(Matched, Action)]> = vec![
+    // Example input:
+    //  TOKEN:   'a' 'b'|'c' 'd'* 'e'+
+    //
+    // State 0
+    //  a:      State 1
+    //  ELSE:   ERROR
+    // State 1
+    //  b:      State 2
+    //  c:      State 2
+    //  ELSE:   ERROR
+    // State 2
+    //  d:      State 2
+    //  e:      State 3
+    //  ELSE:   ERROR
+    // State 3
+    //  e:      State 3
+    //  ELSE:   ACCEPT "TOKEN"
+    let _: Vec<&[(Matched, Action)]> = vec![
         // State 0
         &[
-            (Matched::Some('a'), Action::Match(1)),
+            (Matched::Some('a'), Action::Match(false, 1)),
             (Matched::Any, Action::Err),
         ],
         // State 1
         &[
-            (Matched::Some('b'), Action::Match(2)),
-            (Matched::Some('c'), Action::Match(2)),
+            (Matched::Some('b'), Action::Match(false, 2)),
+            (Matched::Some('c'), Action::Match(false, 2)),
             (Matched::Any, Action::Err),
         ],
         // State 2
         &[
-            (Matched::Some('d'), Action::Match(2)),
-            (Matched::Some('e'), Action::Match(3)),
+            (Matched::Some('d'), Action::Match(false, 2)),
+            (Matched::Some('e'), Action::Match(false, 3)),
             (Matched::Any, Action::Err),
         ],
         // State 3
         &[
-            (Matched::Some('e'), Action::Match(3)),
+            (Matched::Some('e'), Action::Match(false, 3)),
             (Matched::Any, Action::Accept("EXAMPLE_INPUT")),
         ],
     ];
 
-    //    {
-    //        let lexer = Lexer::new(nice_fsa_to_raw_fsa(example_fsa));
-    //        let output = lexer.lex_input(&String::from("abdeeabeeacddddeeacfe"));
-    //        println!("{:#?}", output);
-    //    }
+    // Example from test lexer AST
     {
         let example_rule = LexerRule::And(
             Box::new(LexerRule::String(String::from("a"))),
             Box::new(LexerRule::And(
-                //                Box::new(LexerRule::Or(
+                // TODO: 'b'|'c'
                 Box::new(LexerRule::String(String::from("b"))),
-                //                    Box::new(LexerRule::String(String::from("c"))),
-                //                )),
                 Box::new(LexerRule::And(
                     Box::new(LexerRule::CountRangeEndless(
                         Box::new(LexerRule::String(String::from("d"))),
                         0,
                     )),
-                    Box::new(LexerRule::CountRangeEndless(
-                        Box::new(LexerRule::String(String::from("e"))),
-                        1,
+                    Box::new(LexerRule::And(
+                        Box::new(LexerRule::CountRangeEndless(
+                            Box::new(LexerRule::String(String::from("e"))),
+                            1,
+                        )),
+                        Box::new(LexerRule::String(String::from("f"))),
                     )),
                 )),
             )),
         );
-        println!("{:#?}", example_rule);
-        lex::print_fsa(&lex::generate_fsa_for_token("A_B", &example_rule));
+
+        let fsa = lex::generate_fsa_for_token("EXAMPLE_TOKEN", &example_rule);
+        lex::print_fsa(&fsa);
+
+        let lexer = Lexer::new(fsa);
+        let output = lexer.lex_input(&String::from("abdddddeeeeeeeeeeeeeeeeeeeeeeeeff"));
+        println!("{:#?}", output);
     }
 }
 
+#[allow(dead_code)]
 fn nice_fsa_to_raw_fsa(nice_fsa: Vec<&[(Matched, Action)]>) -> Vec<HashMap<Matched, Action>> {
     let mut raw_fsa: Vec<HashMap<Matched, Action>> = vec![];
     for state in nice_fsa {
